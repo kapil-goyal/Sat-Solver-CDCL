@@ -42,6 +42,13 @@ class Helper:
     def litToVar(lit):
         return int((lit + 1) / 2)
 
+    @staticmethod
+    def litToRLit(lit):
+        if (lit & 1):
+            return -Helper.litToVar(lit)
+        else:
+            return Helper.litToVar(lit)
+
 
 
 class Clause:
@@ -226,8 +233,8 @@ class Solver:
             else:
                 clause.left_watch = 0
                 clause.right_watch = 1
-                self.watches[0].append(i)
-                self.watches[1].append(i)
+                self.watches[clause.literal[0]].append(i)
+                self.watches[clause.literal[0]].append(i)
 
     def decide(self):
         best_var = 0
@@ -239,7 +246,7 @@ class Solver:
         
         best_lit = self.getVal(best_var)
 
-        if (best_lit == 0):
+        if (best_var == 0 or best_lit == 0):
             return SolverState.SAT
 
         # Apply decision
@@ -256,7 +263,80 @@ class Solver:
         self.num_decisions += 1
         self.BCP_stack.append(Helper.opposite(best_lit))
         return SolverState.UNDEF
+
+    def analyze(self, conflicting_clause):
+        current_clause = deepcopy(conflicting_clause)
+        new_clause = Clause()
+        resolve_num = 0
+        bktrk = 0
+        watch_lit = 0
+        antecedents_idx = 0
+
+        u = int()
+        v = int()
+        while (True):
+            for lit in current_clause.literals:
+                v = Helper.litToVar(lit)
+                if (self.marked[v] == False):
+                    self.marked[v] = True
+                    if (self.dlevel[v] == self.dl):
+                        resolve_num += 1
+                    else:
+                        new_clause.literals.append(lit)
+                        c_dl = self.dlevel[v]
+                        if (c_dl > bktrk):
+                            bktrk = c_dl
+                            watch_lit = len(new_clause.literals) - 1
+
+            for lit in self.trail[::-1]:
+                v = Helper.litToVar(lit)
+                u = lit
+                if (self.marked[v] == True):
+                    break
+
+            self.marked[v] = False
+            resolve_num -= 1
+            if (resolve_num == 0):
+                continue
+
+            ant = self.antecedent[v]
+            current_clause = self.cnf[ant]
+            current_clause.literals.remove(u)
+
+            if (resolve_num <= 0):
+                break
         
+        for lit in new_clause.literals:
+            self.marked[Helper.litToVar(lit)] = False
+        
+        opp_u = Helper.opposite(u)
+        new_clause.literals.append(opp_u)
+        self.m_var_inc *= 1 / 0.95
+        self.num_learned += 1
+        self.asserted_lit = opp_u
+
+        if (len(new_clause.literals) == 0):
+            self.BCP_stack.append(u)
+            self.add_unary_clause(opp_u)
+        else:
+            self.BCP_stack.append(u)
+            new_clause.right_watch = len(new_clause.literals)-1
+            new_clause.left_watch = watch_lit
+            self.watches[new_clause.literals[new_clause.left_watch]] =  len(self.cnf)
+            self.watches[new_clause.literals[new_clause.right_watch]] =  len(self.cnf)
+            self.cnf.append(new_clause)
+                
+        return bktrk
+
+    def backtrack(self, k):
+        self.trail = self.trail[:self.separators[k+1]]
+        self.dl = k
+        if (k == 0):
+            self.assert_unary(self.asserted_lit)
+        else:
+            self.assert_lit(self.asserted_lit)
+            self.antecedent[Helper.litToVar(self.asserted_lit)] = len(self.cnf)-1
+            self.conflicting_clause_idx = -1
 
     def validate_assignment(self):
         for i, clause in enumerate(self.cnf):
