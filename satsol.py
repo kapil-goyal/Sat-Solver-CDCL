@@ -54,6 +54,7 @@ class Clause:
 
     def insert_lit(self, inp_lit, max_var):
         assert(int(inp_lit) <= int(max_var))
+        my_solver.bumpVarScore(abs(int(inp_lit)))
         self.literals.append(Helper.varToLit(int(inp_lit)))
 
     def insert(self, new_clause, max_var):
@@ -109,7 +110,12 @@ class Solver:
         self.marked = list()
         self.dlevel = list()
         self.conflicts_at_dl = list()
+        
         self.m_activity = list()
+        self.m_var_inc = 1.0
+        self.m_curr_activity = 1.0
+        self.num_learned = 0
+        self.num_decisions = 0
 
     def read_input(self, filename):
         f = open(filename)
@@ -192,10 +198,22 @@ class Solver:
         self.num_assignments += 1
         return 
 
+    def bumpVarScore(self, var_idx):
+        self.m_activity[var_idx] += self.m_var_inc
+        return
+
     def add_unary_clause(self, lit):
         self.unaries.append(lit)
         return
 
+    def getVal(self, var):
+        saved_phase = self.prev_state[var]
+        if (saved_phase == -1 or saved_phase == 0):
+            return Helper.varToLit(-var)
+        elif (saved_phase == 1):
+            return Helper.varToLit(var)
+        else:
+            assert(False)
 
     def process_input(self):
         for i, clause in enumerate(self.cnf):
@@ -210,6 +228,35 @@ class Solver:
                 clause.right_watch = 1
                 self.watches[0].append(i)
                 self.watches[1].append(i)
+
+    def decide(self):
+        best_var = 0
+        max_score = 0
+        for var, score in self.m_activity:
+            if (self.state[var] == 0 and max_score < score):
+                max_score = score
+                best_var = var
+        
+        best_lit = self.getVal(best_var)
+
+        if (best_lit == 0):
+            return SolverState.SAT
+
+        # Apply decision
+        self.dl += 1
+        if (self.dl > self.max_dl):
+            self.max_dl = self.dl
+            self.separators.append(len(self.trail))
+            self.conflicts_at_dl.append(self.num_learned)
+        else:
+            self.separators[self.dl] = (len(self.trail))
+            self.conflicts_at_dl[self.dl] = self.num_learned
+
+        self.assert_lit(best_lit)
+        self.num_decisions += 1
+        self.BCP_stack.append(Helper.opposite(best_lit))
+        return SolverState.UNDEF
+        
 
     def validate_assignment(self):
         for i, clause in enumerate(self.cnf):
