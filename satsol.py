@@ -23,13 +23,13 @@ class Helper:
 
     @staticmethod
     def litToVar(lit):
-        return (lit + 1) / 2
+        return int((lit + 1) / 2)
 
 
 
 class Clause:
     def __init__(self):
-        self.literals = set()
+        self.literals = list()
         self.left_watch = int()
         self.right_watch = int()
         self.prev_clause = int()
@@ -37,7 +37,7 @@ class Clause:
 
     def insert_lit(self, inp_lit, max_var):
         assert(int(inp_lit) <= int(max_var))
-        self.literals.add(Helper.varToLit(int(inp_lit)))
+        self.literals.append(Helper.varToLit(int(inp_lit)))
 
     def insert(self, new_clause, max_var):
         for lit in new_clause:
@@ -98,6 +98,8 @@ class Solver:
                 clauses_count += 1
 
         assert(self.num_clause == clauses_count)
+        self.initialize()
+        self.process_input()
         return
 
     def initialize(self):
@@ -119,13 +121,17 @@ class Solver:
     def assert_unary(self, lit):
         var = Helper.litToVar(lit)
         if (lit & 1):
-            self.state[lit] = -1
+            self.state[var] = -1
         else:
-            self.state[lit] = 1
+            self.state[var] = 1
 
         self.dlevel[var] = self.dl
         self.num_assignments += 1
         return 
+
+    def add_unary_clause(self, lit):
+        self.unaries.append(lit)
+        return
 
 
     def process_input(self):
@@ -142,14 +148,29 @@ class Solver:
                 self.watches[0].append(i)
                 self.watches[1].append(i)
 
+    def validate_assignment(self):
+        for i, clause in enumerate(self.cnf):
+            clause_satisfied = False
+            for lit in clause.literals:
+                var_state = self.state[Helper.litToVar(lit)]
+                if (var_state < 0 and lit & 1) or (var_state > 0 and not (lit & 1)):
+                    clause_satisfied = True
+            if not clause_satisfied:
+                print("Assignment faild at clause " + str(i+1))
+        return
 
-my_solver = Solver()
+    def print_states(self):
+        print(self.state)
 
-filename = "E:/Studies/SEM8/OM/Assignment/test/unsat/unsat.cnf"
-my_solver.read_input(filename)
 
-for clause in my_solver.cnf:
-    print(clause.literals)
+if True:
+    my_solver = Solver()
+    filename = "E:/Studies/SEM8/OM/Assignment/test/unsat/my_test.cnf"
+    my_solver.read_input(filename)
+    for clause in my_solver.cnf:
+        print(clause.literals)
+    my_solver.print_states()
+    my_solver.validate_assignment()
 
 
 
