@@ -2,7 +2,24 @@
 # To add a new markdown cell, type ' [markdown]'
 
 from copy import copy, deepcopy
+from enum import Enum
 
+class LitState(Enum):
+    L_UNSAT = -1
+    L_SAT = 1
+    L_UNASSIGNED = 0
+
+class ClauseState(Enum):
+    C_UNSAT = 1
+    C_SAT = 2
+    C_UNIT = 3
+    C_UNDEF = 4
+
+class SolverState(Enum):
+    UNSAT = 1
+    SAT = 2
+    CONFLICT = 3
+    UNDEF = 4
 
 
 class Helper:
@@ -43,6 +60,27 @@ class Clause:
         for lit in new_clause:
             if lit is not "0":
                 self.insert_lit(lit, max_var)
+
+    def next_not_false(self, is_left_watch, other_watch):
+        assert(len(self.literals) >= 2)
+        if (len(self.literals) > 2):
+            for i, lit in enumerate(self.literals):
+                lit_state = my_solver.lit_state(lit)
+                if (lit_state != LitState.L_UNSAT and lit != other_watch):
+                    if (is_left_watch):
+                        self.left_watch = i
+                    else:
+                        self.right_watch = i
+                    return i, ClauseState.C_UNDEF
+        
+        other_lit_state = my_solver.lit_state(other_watch)
+        if (other_lit_state == LitState.L_UNSAT):
+            return -1, ClauseState.C_UNSAT
+        elif (other_lit_state == LitState.L_UNASSIGNED):
+            return -1, ClauseState.C_UNIT
+        else:
+            return -1, ClauseState.C_SAT
+            
 
 
 
@@ -118,6 +156,31 @@ class Solver:
         self.conflicts_at_dl.append(0)
         return
 
+    def lit_state(self, lit):
+        var_state = self.state[Helper.litToVar(lit)]
+        if (var_state == 0):
+            return LitState.L_UNASSIGNED
+        elif (var_state == -1 and (lit & 1)):
+            return LitState.L_SAT
+        elif (var_state == 1 and not (lit & 1)):
+            return LitState.L_SAT
+        else:
+            return LitState.L_UNSAT
+
+    def assert_lit(self, lit):
+        self.trail.append(lit)
+        var = Helper.litToVar(lit)
+        if (lit & 1):
+            self.state[var] = -1
+            self.prev_state[var] = -1
+        else:
+            self.state[var] = 1
+            self.prev_state[var] = 1
+
+        self.dlevel[var] = self.dl
+        self.num_assignments += 1
+        return
+
     def assert_unary(self, lit):
         var = Helper.litToVar(lit)
         if (lit & 1):
@@ -152,8 +215,7 @@ class Solver:
         for i, clause in enumerate(self.cnf):
             clause_satisfied = False
             for lit in clause.literals:
-                var_state = self.state[Helper.litToVar(lit)]
-                if (var_state < 0 and lit & 1) or (var_state > 0 and not (lit & 1)):
+                if self.lit_state(lit) == LitState.L_SAT:
                     clause_satisfied = True
             if not clause_satisfied:
                 print("Assignment faild at clause " + str(i+1))
@@ -162,13 +224,62 @@ class Solver:
     def print_states(self):
         print(self.state)
 
+    def BCP(self):
+        while (len(self.BCP_stack) > 0):
+            lit = self.BCP_stack[-1]
+            assert(self.lit_state(lit) == LitState.L_UNSAT)
+            self.BCP_stack.pop()
+            new_watch_list = [0 for i in self.watches[lit]]
+            new_watch_list_idx = len(self.watches[lit]) - 1
+            for i, clause_idx in enumerate(self.watches[lit][::-1]):
+                if (self.conflicting_clause_idx >= 0):
+                    break
+                clause = self.cnf[clause_idx]
+                l_watch = clause.left_watch
+                r_watch = clause.right_watch
+                is_left_watch = l_watch == lit
+                other_watch =  r_watch if is_left_watch else l_watch
+                new_watch_loc, res = clause.next_not_false(is_left_watch, other_watch)
+                if (res != ClauseState.C_UNDEF):
+                    new_watch_list[new_watch_list_idx] = clause_idx
+                    new_watch_list_idx -= 1
+                
+                if (res == ClauseState.C_UNSAT):
+                    if (self.dl == 0):
+                        return SolverState.UNSAT
+                    self.conflicting_clause_idx = clause_idx
+                    self.BCP_stack.clear()
+                    start_i = len(self.watches[lit])-i-1
+                    for other_clause_idx in self.watches[lit][start_i::-1]:
+                        new_watch_list[new_watch_list_idx] = other_clause_idx
+
+                elif (res == ClauseState.C_UNIT):
+                    self.assert_lit(other_watch)
+                    self.BCP_stack.append(Helper.opposite(other_watch))
+                    self.antecedent[Helper.litToVar(other_watch)] = clause_idx
+
+                elif (res == ClauseState.C_UNDEF):
+                    assert(new_watch_loc >= 0 and new_watch_loc < len(clause.literals))
+                    new_lit = clause.literals[new_watch_loc]
+                    self.watches[new_lit].append(clause_idx)
+            
+            self.watches[lit].clear()
+            new_watch_list_idx += 1
+            self.watches[lit] = list(new_watch_list[new_watch_list_idx:])
+            if (self.conflicting_clause_idx >= 0):
+                return SolverState.CONFLICT
+            else:
+                new_watch_list.clear()
+
+        return SolverState.UNDEF
+
 
 if True:
     my_solver = Solver()
     filename = "E:/Studies/SEM8/OM/Assignment/test/unsat/my_test.cnf"
     my_solver.read_input(filename)
-    for clause in my_solver.cnf:
-        print(clause.literals)
+    # for clause in my_solver.cnf:
+    #     print(clause.literals)
     my_solver.print_states()
     my_solver.validate_assignment()
 
