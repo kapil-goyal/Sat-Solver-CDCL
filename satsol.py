@@ -67,6 +67,7 @@ class Clause:
         self.literals.append(Helper.varToLit(int(inp_lit)))
 
     def insert(self, new_clause, max_var):
+        new_clause = list(set(new_clause))
         for lit in new_clause:
             if lit is not "0":
                 self.insert_lit(lit, max_var)
@@ -224,7 +225,43 @@ class Solver:
         else:
             assert(False)
 
+    def heuristic(self):
+        self.count_arr = [0 for i in range(self.num_vars+1)]
+        for clause in self.cnf:
+            for lit in clause.literals:
+                self.count_arr[Helper.litToVar(lit)] += 1
+        
+        self.one_time_vars = set()
+        for idx, count in enumerate(self.count_arr):
+            if count == 1:
+                self.one_time_vars.add(idx)
+
+    def heuristic2(self):
+        for idx, clause in enumerate(self.cnf):
+            found = False
+            for lit in clause.literals:
+                var = Helper.litToVar(lit)
+                if (var in self.one_time_vars):
+                    found = True
+                    self.one_time_vars.remove(var)
+                    break
+            if (found):
+                for lit in clause.literals:
+                    var = Helper.litToVar(lit)
+                    self.count_arr[var] -= 1
+                    if (self.count_arr[var] == 1):
+                        self.one_time_vars.add(var)
+                del self.cnf[idx]
+
+    def heuristic3(self):
+        while (True):
+            self.heuristic()
+            if (len(self.one_time_vars) == 0):
+                break
+            self.heuristic2()
+
     def process_input(self):
+        self.heuristic3()
         random.shuffle(self.cnf)
         new_cnf = list()
         for i, clause in enumerate(self.cnf):
@@ -277,28 +314,30 @@ class Solver:
         return SolverState.UNDEF
 
     def analyze(self, conflicting_clause):
-        current_clause = deepcopy(conflicting_clause)
+        current_clause = (conflicting_clause)
         new_clause = Clause()
         resolve_num = 0
         bktrk = 0
         watch_lit = 0
         antecedents_idx = 0
+        removed = set()
 
         u = int()
         v = int()
         while (True):
             for lit in current_clause.literals:
-                v = Helper.litToVar(lit)
-                if (self.marked[v] == False):
-                    self.marked[v] = True
-                    if (self.dlevel[v] == self.dl):
-                        resolve_num += 1
-                    else:
-                        new_clause.literals.append(lit)
-                        c_dl = self.dlevel[v]
-                        if (c_dl > bktrk):
-                            bktrk = c_dl
-                            watch_lit = len(new_clause.literals) - 1
+                if lit not in removed:
+                    v = Helper.litToVar(lit)
+                    if (self.marked[v] == False):
+                        self.marked[v] = True
+                        if (self.dlevel[v] == self.dl):
+                            resolve_num += 1
+                        else:
+                            new_clause.literals.append(lit)
+                            c_dl = self.dlevel[v]
+                            if (c_dl > bktrk):
+                                bktrk = c_dl
+                                watch_lit = len(new_clause.literals) - 1
 
             for lit in self.trail[::-1]:
                 v = Helper.litToVar(lit)
@@ -312,8 +351,9 @@ class Solver:
                 break
 
             ant = self.antecedent[v]
-            current_clause = deepcopy(self.cnf[ant])
-            current_clause.literals.remove(u)
+            current_clause = (self.cnf[ant])
+            removed.add(u)
+            # current_clause.literals.remove(u)
 
             if (resolve_num <= 0):
                 break
@@ -442,9 +482,9 @@ class Solver:
 
 if True:
     my_solver = Solver()
-    filename = "E:/Studies/SEM8/OM/Assignment/test/sat/bmc-5.cnf"
-    # filename = "E:/Studies/SEM8/OM/Assignment/test/unsat/unsat3.cnf"
-    # filename = "E:/Studies/SEM8/OM/Assignment/test/comp17/mp1-bsat210-739.cnf"
+    # filename = "E:/Studies/SEM8/OM/Assignment/test/sat/bmc-6.cnf"
+    filename = "E:/Studies/SEM8/OM/Assignment/test/unsat/bj08amba2g4f3.k9.cnf"
+    # filename = "E:/Studies/SEM8/OM/Assignment/test/comp17/mp1-tri_ali_s11_c35_abio_UNS.cnf"
     cProfile.run('my_solver.read_input(filename)')
     # for clause in my_solver.cnf:
     #     print(clause.literals)
