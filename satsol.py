@@ -3,6 +3,8 @@
 
 from copy import copy, deepcopy
 from enum import Enum
+import cProfile 
+import random
 
 class LitState(Enum):
     L_UNSAT = -1
@@ -137,6 +139,7 @@ class Solver:
                 p_encountered = True
                 self.num_vars = int(line[2])
                 self.num_clause = int(line[3])
+                self.initialize()
             else:
                 assert(p_encountered)
 
@@ -148,8 +151,7 @@ class Solver:
                 
                 clauses_count += 1
 
-        assert(self.num_clause == clauses_count)
-        self.initialize()
+        # assert(self.num_clause == clauses_count)
         self.process_input()
         return
 
@@ -223,6 +225,8 @@ class Solver:
             assert(False)
 
     def process_input(self):
+        random.shuffle(self.cnf)
+        new_cnf = list()
         for i, clause in enumerate(self.cnf):
             assert(len(clause.literals) > 0)
             if (len(clause.literals) == 1):
@@ -233,17 +237,25 @@ class Solver:
             else:
                 clause.left_watch = 0
                 clause.right_watch = 1
-                self.watches[clause.literal[0]].append(i)
-                self.watches[clause.literal[0]].append(i)
+                self.watches[clause.literals[0]].append(len(new_cnf))
+                self.watches[clause.literals[1]].append(len(new_cnf))
+                new_cnf.append(clause)
 
-    def decide(self):
+        del self.cnf
+        self.cnf = new_cnf
+
+    def get_best_var(self):
         best_var = 0
         max_score = 0
-        for var, score in self.m_activity:
+        for var, score in enumerate(self.m_activity):
             if (self.state[var] == 0 and max_score < score):
                 max_score = score
                 best_var = var
-        
+
+        return best_var
+
+    def decide(self):
+        best_var = self.get_best_var()        
         best_lit = self.getVal(best_var)
 
         if (best_var == 0 or best_lit == 0):
@@ -297,10 +309,10 @@ class Solver:
             self.marked[v] = False
             resolve_num -= 1
             if (resolve_num == 0):
-                continue
+                break
 
             ant = self.antecedent[v]
-            current_clause = self.cnf[ant]
+            current_clause = deepcopy(self.cnf[ant])
             current_clause.literals.remove(u)
 
             if (resolve_num <= 0):
@@ -322,21 +334,26 @@ class Solver:
             self.BCP_stack.append(u)
             new_clause.right_watch = len(new_clause.literals)-1
             new_clause.left_watch = watch_lit
-            self.watches[new_clause.literals[new_clause.left_watch]] =  len(self.cnf)
-            self.watches[new_clause.literals[new_clause.right_watch]] =  len(self.cnf)
+            self.watches[new_clause.literals[new_clause.left_watch]].append(len(self.cnf))
+            self.watches[new_clause.literals[new_clause.right_watch]].append(len(self.cnf))
             self.cnf.append(new_clause)
                 
         return bktrk
 
     def backtrack(self, k):
+        for lit in self.trail[self.separators[k+1]:]:
+            v = Helper.litToVar(lit)
+            if (self.dlevel[v] > 0):
+                self.state[v] = 0
+
         self.trail = self.trail[:self.separators[k+1]]
         self.dl = k
         if (k == 0):
             self.assert_unary(self.asserted_lit)
         else:
             self.assert_lit(self.asserted_lit)
-            self.antecedent[Helper.litToVar(self.asserted_lit)] = len(self.cnf)-1
-            self.conflicting_clause_idx = -1
+        self.antecedent[Helper.litToVar(self.asserted_lit)] = len(self.cnf)-1
+        self.conflicting_clause_idx = -1
 
     def validate_assignment(self):
         for i, clause in enumerate(self.cnf):
@@ -362,8 +379,8 @@ class Solver:
                 if (self.conflicting_clause_idx >= 0):
                     break
                 clause = self.cnf[clause_idx]
-                l_watch = clause.left_watch
-                r_watch = clause.right_watch
+                l_watch = clause.literals[clause.left_watch]
+                r_watch = clause.literals[clause.right_watch]
                 is_left_watch = l_watch == lit
                 other_watch =  r_watch if is_left_watch else l_watch
                 new_watch_loc, res = clause.next_not_false(is_left_watch, other_watch)
@@ -377,8 +394,10 @@ class Solver:
                     self.conflicting_clause_idx = clause_idx
                     self.BCP_stack.clear()
                     start_i = len(self.watches[lit])-i-1
-                    for other_clause_idx in self.watches[lit][start_i::-1]:
-                        new_watch_list[new_watch_list_idx] = other_clause_idx
+                    if (start_i > 0):
+                        for other_clause_idx in self.watches[lit][start_i-1::-1]:
+                            new_watch_list[new_watch_list_idx] = other_clause_idx
+                            new_watch_list_idx -= 1
 
                 elif (res == ClauseState.C_UNIT):
                     self.assert_lit(other_watch)
@@ -400,15 +419,39 @@ class Solver:
 
         return SolverState.UNDEF
 
+    def _solve(self):
+        # res = SolverState()
+        while (True):
+            while (True):
+                res = self.BCP()
+                if (res == SolverState.UNSAT):
+                    return res
+                if (res == SolverState.CONFLICT):
+                    self.backtrack(self.analyze(self.cnf[self.conflicting_clause_idx]))
+                else:
+                    break
+
+            res = self.decide()
+            if (res == SolverState.SAT or res == SolverState.UNSAT):
+                return res
+
+    def solve(self):
+        res = self._solve()
+        assert(res == SolverState.SAT or res == SolverState.UNSAT)
+        print(res)
 
 if True:
     my_solver = Solver()
-    filename = "E:/Studies/SEM8/OM/Assignment/test/unsat/my_test.cnf"
-    my_solver.read_input(filename)
+    filename = "E:/Studies/SEM8/OM/Assignment/test/sat/bmc-5.cnf"
+    # filename = "E:/Studies/SEM8/OM/Assignment/test/unsat/unsat3.cnf"
+    # filename = "E:/Studies/SEM8/OM/Assignment/test/comp17/mp1-bsat210-739.cnf"
+    cProfile.run('my_solver.read_input(filename)')
     # for clause in my_solver.cnf:
     #     print(clause.literals)
-    my_solver.print_states()
+    cProfile.run('my_solver.solve()')
+    # my_solver.print_states()
     my_solver.validate_assignment()
+
 
 
 
