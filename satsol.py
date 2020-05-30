@@ -1,10 +1,8 @@
-# To add a new cell, type ''
-# To add a new markdown cell, type ' [markdown]'
-
 from copy import copy, deepcopy
 from enum import Enum
 import cProfile 
 import random
+import time
 
 class LitState(Enum):
     L_UNSAT = -1
@@ -61,22 +59,22 @@ class Clause:
         self.prev_clause = int()
         self.next_clause = int()
 
-    def insert_lit(self, inp_lit, max_var):
+    def insert_lit(self, solver, inp_lit, max_var):
         assert(int(inp_lit) <= int(max_var))
-        my_solver.bumpVarScore(abs(int(inp_lit)))
+        solver.bumpVarScore(abs(int(inp_lit)))
         self.literals.append(Helper.varToLit(int(inp_lit)))
 
-    def insert(self, new_clause, max_var):
+    def insert(self, solver, new_clause, max_var):
         new_clause = list(set(new_clause))
         for lit in new_clause:
             if lit is not "0":
-                self.insert_lit(lit, max_var)
+                self.insert_lit(solver, lit, max_var)
 
-    def next_not_false(self, is_left_watch, other_watch):
+    def next_not_false(self, solver, is_left_watch, other_watch):
         assert(len(self.literals) >= 2)
         if (len(self.literals) > 2):
             for i, lit in enumerate(self.literals):
-                lit_state = my_solver.lit_state(lit)
+                lit_state = solver.lit_state(lit)
                 if (lit_state != LitState.L_UNSAT and lit != other_watch):
                     if (is_left_watch):
                         self.left_watch = i
@@ -84,7 +82,7 @@ class Clause:
                         self.right_watch = i
                     return i, ClauseState.C_UNDEF
         
-        other_lit_state = my_solver.lit_state(other_watch)
+        other_lit_state = solver.lit_state(other_watch)
         if (other_lit_state == LitState.L_UNSAT):
             return -1, ClauseState.C_UNSAT
         elif (other_lit_state == LitState.L_UNASSIGNED):
@@ -145,9 +143,9 @@ class Solver:
                 assert(p_encountered)
 
                 new_clause = Clause()
-                new_clause.insert(line, self.num_vars)
+                new_clause.insert(self, line, self.num_vars)
                 assert(len(new_clause.literals) != 0)
-                my_solver.cnf.append(new_clause)
+                self.cnf.append(new_clause)
                 del new_clause
                 
                 clauses_count += 1
@@ -423,7 +421,7 @@ class Solver:
                 r_watch = clause.literals[clause.right_watch]
                 is_left_watch = l_watch == lit
                 other_watch =  r_watch if is_left_watch else l_watch
-                new_watch_loc, res = clause.next_not_false(is_left_watch, other_watch)
+                new_watch_loc, res = clause.next_not_false(self, is_left_watch, other_watch)
                 if (res != ClauseState.C_UNDEF):
                     new_watch_list[new_watch_list_idx] = clause_idx
                     new_watch_list_idx -= 1
@@ -478,21 +476,38 @@ class Solver:
     def solve(self):
         res = self._solve()
         assert(res == SolverState.SAT or res == SolverState.UNSAT)
-        print(res)
+        return res
+        # print(res)
 
-if True:
-    my_solver = Solver()
-    # filename = "E:/Studies/SEM8/OM/Assignment/test/sat/bmc-6.cnf"
-    filename = "E:/Studies/SEM8/OM/Assignment/test/unsat/bj08amba2g4f3.k9.cnf"
-    # filename = "E:/Studies/SEM8/OM/Assignment/test/comp17/mp1-tri_ali_s11_c35_abio_UNS.cnf"
-    cProfile.run('my_solver.read_input(filename)')
-    # for clause in my_solver.cnf:
-    #     print(clause.literals)
-    cProfile.run('my_solver.solve()')
-    # my_solver.print_states()
-    my_solver.validate_assignment()
+def print_stats(solver, filename, res, duration):
+    ans = "Satifiable" if res == SolverState.SAT else "Unsatisfiable"
+    print("")
+    print("Statistics")
+    print("========================================================")
+    print(filename)
+    print("========================================================")
+    print(ans)
+    print("========================================================")
+    print("Learned Clauses:\t" + str(solver.num_learned))
+    print("Decisios:\t\t" + str(solver.num_decisions))
+    print("Implications:\t\t" + str(solver.num_assignments - solver.num_decisions))
+    minutes, seconds = divmod(duration, 60)
+    print("Time:\t\t\t" + str(minutes) + " minutes " + str(seconds) + " seconds")
 
 
+def read_file_and_solve_sat(filename):
+    global my_solver
+    start_time = time.time()
+    my_solver.read_input(filename)
+    res = my_solver.solve()
+    if (res == SolverState.SAT):
+        my_solver.validate_assignment()
+    end_time = time.time()
+    print_stats(my_solver, filename, res, end_time - start_time)
+
+my_solver = Solver()
+filename = "E:/Studies/SEM8/OM/Assignment/test/sat/bmc-2.cnf"
+read_file_and_solve_sat(filename)
 
 
 
